@@ -51,6 +51,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import java.io.File
+import android.content.ContentValues
+import android.content.Intent
+import android.provider.MediaStore
+import androidx.compose.material.icons.outlined.QrCodeScanner
 
 class MainActivity : ComponentActivity() {
     private var recording: Recording?=null
@@ -113,6 +117,20 @@ class MainActivity : ComponentActivity() {
                                 contentDescription = "Switch camera"
                             )
                         }
+                        IconButton(
+                            onClick = {
+                                val intent = Intent(this@MainActivity,MainActivity2::class.java)
+                                startActivity(intent)
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(16.dp,16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.QrCodeScanner,
+                                contentDescription = "QR camera"
+                            )
+                        }
 
                         Row(
                             modifier = Modifier
@@ -167,7 +185,7 @@ class MainActivity : ComponentActivity() {
         controller: LifecycleCameraController,
         onPhotoTaken: (Bitmap) -> Unit
     ) {
-        if (!hasRequiredPermissions()){
+        if (!hasRequiredPermissions()) {
             return
         }
 
@@ -190,7 +208,8 @@ class MainActivity : ComponentActivity() {
                         true
                     )
                     onPhotoTaken(rotatedBitmap)
-                    Toast.makeText(applicationContext,"clicked",Toast.LENGTH_SHORT).show()
+                    savePhotoToStorage(rotatedBitmap) // Save photo to storage
+                    Toast.makeText(applicationContext, "Photo saved", Toast.LENGTH_SHORT).show()
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -202,33 +221,73 @@ class MainActivity : ComponentActivity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun recordVideo(controller: LifecycleCameraController){
-        if (recording !=null){
+    private fun recordVideo(controller: LifecycleCameraController) {
+        if (recording != null) {
             recording?.stop()
-            recording=null
+            recording = null
             return
         }
-        if (!hasRequiredPermissions()){
+        if (!hasRequiredPermissions()) {
             return
         }
-        val outputFile = File(filesDir,"my-recording.mp4")
+        val outputFile = File(filesDir, "my-recording.mp4")
+        val audioConfig = AudioConfig.create(true)
         recording = controller.startRecording(
             FileOutputOptions.Builder(outputFile).build(),
-            AudioConfig.create(false),
+            audioConfig,
             ContextCompat.getMainExecutor(applicationContext),
-        ){event ->
-            when(event){
-               is VideoRecordEvent.Finalize ->{
-                   if (event.hasError()){
-                       recording?.close()
-                       recording = null
-                       Toast.makeText(applicationContext,"video capture failed", Toast.LENGTH_SHORT).show()
-                   }else{
-                       Toast.makeText(applicationContext,"video capture succeeded", Toast.LENGTH_SHORT).show()
-                   }
-               }
+        ) { event ->
+            when (event) {
+                is VideoRecordEvent.Finalize -> {
+                    if (event.hasError()) {
+                        recording?.close()
+                        recording = null
+                        Toast.makeText(applicationContext, "Video capture failed", Toast.LENGTH_SHORT).show()
+                    } else {
+                        saveVideoToStorage(outputFile) // Save video to storage
+                        Toast.makeText(applicationContext, "Video saved", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
+        }
+    }
 
+
+    private fun savePhotoToStorage(bitmap: Bitmap) {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "photo_${System.currentTimeMillis()}.jpg")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+        }
+
+        val uri = applicationContext.contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        )
+
+        uri?.let { imageUri ->
+            applicationContext.contentResolver.openOutputStream(imageUri)?.use { outputStream ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+            }
+        }
+    }
+
+    private fun saveVideoToStorage(file: File) {
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, "video_${System.currentTimeMillis()}.mp4")
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+        }
+
+        val uri = applicationContext.contentResolver.insert(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        )
+
+        uri?.let { videoUri ->
+            applicationContext.contentResolver.openOutputStream(videoUri)?.use { outputStream ->
+                file.inputStream().use { inputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
         }
     }
 
